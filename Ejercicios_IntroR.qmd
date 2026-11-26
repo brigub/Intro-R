@@ -1032,3 +1032,145 @@ La proporción cambia: en México y Países Bajos domina Pseudomonadota (≈ 60 
 
 Aparece Chordata en algunas muestras: probablemente son lecturas de ADN del hospedero o humano (contaminación), no microbios del suelo.
 
+# Tema 11. Reproducibilidad con Quarto
+
+## Preguntas
+
+1. Si compartimos únicamente un archivo HTML con figuras, ¿estamos compartiendo un análisis reproducible?
+
+No, el HTML solo sirve para ver los resultados, pero alguien más no podría volver a obtenerlos solo con eso, ara que sea reproducible también hay que compartir el .qmd con el código, los datos que se usan y las instrucciones para correrlo.
+
+2. Queremos que el HTML muestre una gráfica pero no las instrucciones de R que la producen. ¿Qué opción usamos?
+
+#| echo: false: el bloque sí se ejecuta y la gráfica aparece, pero el código no se ve en el HTML.
+
+3. Un bloque usa datos_filtrados, pero ese objeto se creó ayer en la consola y nunca aparece en el .qmd ¿Qué pasa al renderizar?
+
+Sale un error de "objeto no encontrado", porque Quarto empieza desde cero y no sabe nada de lo que se hizo en la consola. Para arreglarlo hay que crear datos_filtrados dentro del .qmd o cargarlo desde un archivo.
+
+## Reporte rizosfera
+
+```{r}
+#| label: datos-reporte
+#| include: false
+# Si las tablas ya existen (porque las creé en el Tema 9) las uso;
+# si no, las leo de los archivos que guardé en results/.
+if (!exists("metadata_riz")) {
+  metadata_riz <- read_csv("data_raw/datos_rizosfera/metadata_rizosfera.csv", show_col_types = FALSE)
+}
+if (!exists("totales_muestra")) {
+  totales_muestra <- read_tsv("results/totales_muestra.tsv", show_col_types = FALSE)
+}
+if (!exists("filos_5")) {
+  filos_5 <- read_tsv("results/filos_5.tsv", show_col_types = FALSE)
+}
+```
+
+Análisis descriptivo: Subconjunto de datos reales del proyecto MicroAgroBiome: 75 muestras de rizosfera, que es el suelo que está pegado a las raíces de las plantas. Los datos son conteos de secuenciación,(cuántas lecturas se asignaron a cada grupo de microorganismos) no son el número real de microbios en el suelo.
+
+
+¿la composición de microorganismos se ve diferente entre las plantas hospederas?
+
+### Datos
+
+Dos archivos de data_raw/datos_rizosfera/:
+
+- conteos_taxonomia_rizosfera.tsv: cada fila es un taxón y cada columna una muestra.
+- metadata_rizosfera.csv: la información de cada muestra (planta, país, año…).
+
+Tema 9:
+
+1. Limpié los nombres de los microorganismos: les quité las letras del inicio (como p__ o g__) y, donde no había nombre, puse NA.
+2. Cambié la forma de la tabla para que quedara una fila por cada microorganismo en cada muestra, y le agregué la información de cada muestra (como la planta) usando sample_id.
+3. Calculé qué porcentaje representa cada microorganismo dentro de su muestra.
+4. Junté en un solo grupo, "< 5%", a los microorganismos que eran menos del 5 % de su muestra.
+
+Esas tablas las guardé en results/, y aquí las uso para hacer una tabla y dos figuras.
+
+### Resultados
+
+#### Muestras por planta hospedera
+
+En la tbl-hospederos-riz cuento cuántas muestras hay de cada planta.
+
+```{r}
+#| label: tbl-hospederos-riz
+#| tbl-cap: "Número de muestras por planta hospedera"
+resumen_hospederos <- metadata_riz %>%
+  count(host_name, name = "numero_muestras") %>%
+  arrange(desc(numero_muestras))
+
+knitr::kable(
+  resumen_hospederos,
+  col.names = c("Planta hospedera", "Número de muestras"),
+  align = c("l", "c")
+)
+```
+
+No todas las plantas tienen la misma cantidad de muestras: el jitomate (Tomato) tiene 21 y el maíz 17, pero varias plantas tienen solo 1 o 2. Esto importa porque, cuando una planta tiene pocas muestras, una sola muestra rara puede cambiar mucho lo que vemos, y entonces no la puedo comparar de forma justa con las plantas que tienen muchas.
+
+#### Profundidad de lectura
+
+```{r}
+#| label: fig-profundidad-riz
+#| fig-cap: "Total de lecturas por muestra, según planta hospedera"
+#| fig-width: 10
+#| fig-height: 5
+profundidad_riz <- totales_muestra %>%
+  left_join(metadata_riz %>% select(sample_id, host_name), by = "sample_id")
+
+ggplot(profundidad_riz, aes(x = host_name, y = total_lecturas)) +
+  geom_boxplot(fill = "#9B6FD1", alpha = 0.8) +
+  scale_y_log10(labels = scales::label_comma()) +
+  coord_flip() +
+  labs(
+    x = "Planta hospedera",
+    y = "Total de lecturas (escala logarítmica)",
+    title = "Profundidad de lectura por planta"
+  ) +
+  theme_minimal()
+```
+
+En la fig-profundidad-riz se ve que la cantidad de lecturas cambia mucho entre muestras: la mayoría tiene unos pocos millones, pero hay una muestra de maíz con más de 100 millones. Por eso se usó escala logarítmica, para que las muestras con pocas lecturas no se vieran aplastadas. Esto es importante porque con más lecturas se pueden detectar más microorganismos raros, pero no significa que esas plantas tengan más microbios: depende de cómo se secuenció cada estudio.
+
+#### Composición por filo
+
+```{r}
+#| label: fig-filos-riz
+#| fig-cap: "Composición taxonómica por filo en muestras de rizosfera"
+#| fig-width: 11
+#| fig-height: 6
+orden_filos_riz <- c(
+  sort(setdiff(unique(filos_5$taxon_final), "Filos < 5%")),
+  "Filos < 5%"
+)
+
+ggplot(filos_5, aes(x = sample_id, y = abundancia_relativa, fill = taxon_final)) +
+  geom_col() +
+  scale_fill_viridis_d(breaks = orden_filos_riz, option = "plasma") +
+  facet_wrap(~ host_name, scales = "free_x") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(
+    x = "Muestra", y = "Abundancia relativa", fill = "Filo",
+    title = "Composición taxonómica por filo"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank())
+```
+
+En la fig-filos-riz cada barra es una muestra y suma 100 %. En casi todas las muestras los filos que más aparecen son Pseudomonadota y Actinomycetota, pero la proporción entre ellos cambia de una muestra a otra, incluso entre muestras de la misma planta. En algunas muestras sale Chordata, que seguramente es ADN de la planta o de humano que se coló en la secuenciación, no un microorganismo del suelo.
+
+### Discusión
+
+Con estas figuras puedo describir los datos, pero no puedo decir que la planta cause las diferencias.
+- Las plantas no tienen el mismo número de muestras, y algunas tienen solo una.
+- Las muestras vienen de estudios diferentes, que pudieron usar métodos y profundidades de secuenciación distintas. La planta, el país y el estudio están mezclados, entonces no se puede separar el efecto de cada uno.
+- Los conteos son de secuenciación, no conteos reales de microorganismos.
+- Al juntar todo lo que tiene menos de 5 % en "Otros", se esconden muchos taxones poco abundantes que podrían ser importantes.
+
+### Conclusiones
+
+- En la rizosfera de estas muestras dominan dos filos: Pseudomonadota y Actinomycetota.
+- Hay mucha variación entre muestras, tanto en la composición como en la cantidad de lecturas, incluso dentro de una misma planta.
+- Como los datos vienen de estudios diferentes y no están balanceados, las diferencias que veo son solo descriptivas.
+
