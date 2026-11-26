@@ -1,0 +1,24 @@
+project:
+  type: default
+  output-dir: docs
+
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+
+    # Apariencia
+    theme:
+      - cosmo
+      - estilos.scss
+    mainfont: "Arial"
+    fontsize: 12pt
+    linkcolor: "#DF65B0"
+
+execute:
+  warning: false
+  message: false
