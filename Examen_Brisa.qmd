@@ -1,0 +1,187 @@
+---
+title: "Examen_VersionA"
+author: "Brisa Danae Gutiérrez Bernal"
+date: 26/Nov/2026
+lang: es
+output-file: index.html
+---
+# Examen final de Introducción a R
+
+```{r}
+#| label: setup
+library(readr)    
+library(dplyr)    
+library(tidyr)    
+library(ggplot2)
+library(forcats)  
+library(scales)   
+
+dir.create("figuras", showWarnings = FALSE)
+```
+
+## 13.2 Importación y exportación
+
+```{r}
+#| label: importar
+conteos  <- read_tsv("data_raw/datos_A/conteos_genero_miel_bacterias.tsv")
+metadata <- read_csv("data_raw/datos_A/metadata_miel_examen.csv")
+
+head(conteos)
+glimpse(metadata)
+```
+La tabla de conteos tiene 17 filas y 14 columnas, la de metadatos tiene 37,128 filas y 3 columnas.
+
+- Indica las dimensiones de ambas tablas y el número de muestras por especie de abeja.
+
+### Dimensiones 
+
+```{r}
+dim(conteos)
+dim(metadata)
+n_distinct(conteos$genero)
+conteos |> count(sample_id)
+```
+La tabla de conteos tiene 17 filas y 14 columnas, la de metadatos tiene 37,128 filas y 3 columnas.La tabla de conteos tiene 2184 géneros en 17 en muestras.
+ 
+### Número de muestras por especie
+
+```{r}
+metadata |> count(species, name = "n_muestras")
+```
+Hay 9 muestras de Melipona beecheii y 8 de Scaptotrigona mexicana.
+
+
+- Identifica si existen valores faltantes en los metadatos e indica en qué variable o variables.
+
+### Valores Faltantes
+
+```{r}
+colSums(is.na(metadata))
+names(metadata)[colSums(is.na(metadata)) > 0]
+metadata |> filter(is.na(Total_sugar)) |> select(sample_id, species, Total_sugar)
+```
+Existen 2 variables faltantes en los metadatos en la variable "Total_sugar"
+
+## 13.3 Integración y abundancia relativa
+
+Integra las dos tablas mediante el identificador sample_id. Calcula la abundancia relativa de cada género dentro de cada muestra, dividiendo su conteo entre la suma de los conteos de esa muestra. Conserva las abundancias como proporciones entre 0 y 1.
+
+```{r}
+abund <- conteos |>
+  left_join(metadata, by = "sample_id") |>         
+  group_by(sample_id) |>
+  mutate(abundancia_rel = conteo / sum(conteo)) |>  
+  ungroup()
+
+abund |> select(sample_id, species, genero, conteo, abundancia_rel) |> head()
+
+abund |>
+  group_by(sample_id) |>
+  summarise(suma = sum(abundancia_rel))
+
+sum(is.na(abund$species))
+```
+
+## 13.4 Figura 1: los 10 géneros más abundantes
+
+Calcula la abundancia relativa promedio de cada género considerando las 17 muestras, incluidos los conteos cero. Selecciona los diez con mayor promedio y reproduce la gráfica de barras horizontales ordenadas de mayor a menor. Muestra el eje de abundancia en porcentajes y agrega etiquetas apropiadas.
+
+```{r}
+top10 <- abund |>
+  group_by(genero) |>
+  summarise(promedio = mean(abundancia_rel)) |>   
+  arrange(desc(promedio)) |>
+  slice_head(n = 10)
+
+top10
+```
+
+```{r}
+#| label: fig-top10
+#| fig-cap: "Figura 1. Los 10 géneros más abundantes."
+fig1 <- ggplot(top10, aes(x = promedio, y = fct_reorder(genero, promedio))) +
+  geom_col(fill = "#701B91") +
+  scale_x_continuous(labels = percent_format(accuracy = 1),
+                     expand = expansion(mult = c(0, 0.05))) +
+  labs(title = "Top 10 géneros bacterianos más abundantes",
+       x = "Abundancia relativa promedio (%)",
+       y = "Género") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(face = "italic"))
+
+fig1
+ggsave("figuras/figura1_top10_generos.png", fig1, width = 7, height = 5, dpi = 300)
+```
+
+## 13.5 Figura 2: composición bacteriana por muestra
+
+Utiliza las abundancias relativas del apartado 2, no solamente los diez taxones de la figura anterior.
+
+Dentro de cada muestra, agrupa los géneros cuya abundancia relativa sea estrictamente menor al 5 % en la categoría Géneros < 5%. Suma las abundancias de esa categoría.
+Construye una gráfica de barras apiladas, una barra por muestra, separando las especies de abejas mediante facetas. Cada barra debe sumar 100 %.
+Utiliza la paleta proporcionada y coloca la leyenda debajo de la gráfica.\
+
+```{r}
+genus_colors <- c(
+  "Acetilactobacillus" = "#5B3794",
+  "Apilactobacillus" = "#9953A1",
+  "Lactobacillus" = "#BA4B8E",
+  "Nicoliella" = "#C87AAD",
+  "Pantoea" = "#EBA8BA",
+  "Tatumella" = "#F8DCD9",
+  "Fructobacillus" = "#B494D5",
+  "Géneros < 5%" = "#C6B2CB"
+)
+```
+
+
+```{r}
+#| label: agrupar-5
+composicion <- abund |>
+  mutate(genero_plot = if_else(abundancia_rel < 0.05,   
+                               "Géneros < 5%", genero)) |>
+  group_by(sample_id, species, genero_plot) |>
+  summarise(abundancia_rel = sum(abundancia_rel), .groups = "drop") |>
+  mutate(genero_plot = factor(genero_plot, levels = names(genus_colors)))
+
+composicion |>
+  group_by(sample_id) |>
+  summarise(suma = sum(abundancia_rel))
+
+levels(droplevels(composicion$genero_plot))
+```
+
+```{r}
+#| label: fig-composicion
+#| fig-cap: "Figura 2. Composición bacteriana por muestra."
+#| fig-width: 10
+#| fig-height: 6
+fig2 <- ggplot(composicion,
+               aes(x = sample_id, y = abundancia_rel, fill = genero_plot)) +
+  geom_col(width = 0.85) +
+  facet_wrap(~ species, scales = "free_x") +
+  scale_fill_manual(values = genus_colors) +
+  scale_y_continuous(labels = percent_format(),
+                     expand = expansion(mult = c(0, 0.01))) +
+  labs(title = "Composición bacteriana por muestra",
+       x = "Muestra", y = "Abundancia relativa (%)", fill = "Género") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        strip.text = element_text(face = "italic", size = 12)) +
+  guides(fill = guide_legend(nrow = 2))
+
+fig2
+ggsave("figuras/figura2_composicion_muestras.png", fig2, width = 10, height = 6, dpi = 300)
+```
+
+## 13.6 Interpretación
+
+1. ¿Cuál es el género con mayor abundancia relativa promedio?
+
+Acetilactobacillus con una abundancia relativa promedio de ~32%.
+
+2. ¿Qué diferencias o similitudes observas en la composición de las muestras de las dos especies de abejas? Describe lo observado sin atribuir causalidad.
+
+En las muestras de Melipona beecheii se puede observar que Acetilactobacillus está entre el 30% y el 70% de cada muestra, en Melii_40, Melii_41 y Meli_47 aparece Nicolliela y en Melli_46 y Melli_47 Fructobacillus. Por otro lado en Scaptotrigona mexicana Acetilactobacillus casi no aparece (solo en Scapto_89 y Scapto_91 en muy bajo porcentaje), en estas muestras el género que aparece más y abarca más porcentaje es el Apilactobacillus, tambien Lactobacillus y Nicoliella; en Scapto_92 y Scapto-93 aparece Pantonea y Tatumella. Ambos tienen Géneros < 5% pero en Scaptotrigona mexicana aparece en un porcentaje mayor que en Melipona beecheii.
+
