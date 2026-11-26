@@ -3,7 +3,7 @@ title: "Ejercicios_IntroR"
 author: "Brisa Danae Gutiérrez Bernal"
 date: today
 lang: es
-output-file: index.html
+output-file: Ejercicios_IntroR.html
 ---
 
 ```{r}

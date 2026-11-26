@@ -3,7 +3,7 @@ title: "Examen_VersionA"
 author: "Brisa Danae Gutiérrez Bernal"
 date: 26/Nov/2026
 lang: es
-output-file: index.html
+output-file: Examen_Brisa.html
 ---
 # Examen final de Introducción a R
 
